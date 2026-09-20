@@ -25,6 +25,9 @@ Pods/
 .DS_Store
 .env
 .env.*
+review.db
+review.db-shm
+review.db-wal
 *.log
 coverage/
 .coverage

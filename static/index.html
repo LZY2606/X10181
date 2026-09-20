@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>刀轨审阅台</title>
+  <style>
+    :root { --bg:#101418; --panel:#171d23; --ink:#e8eef4; --muted:#91a0ad; --line:#2b3540;
+      --blue:#5aa9ff; --red:#ff6b6b; --amber:#f2c14e; --green:#58d68d; --purple:#b084cc; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--ink); }
+    header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:18px; }
+    h1 { font-size:20px; margin:0; }
+    .status { font-size:13px; color:var(--muted); }
+    main { display:grid; grid-template-columns:1.05fr 1.15fr .9fr; gap:12px; padding:12px; height:calc(100vh - 62px); }
+    section { background:var(--panel); border:1px solid var(--line); border-radius:10px; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+    h2 { font-size:15px; margin:0; padding:10px 12px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; }
+    .toolbar { display:flex; gap:8px; flex-wrap:wrap; padding:10px; border-bottom:1px solid var(--line); }
+    textarea { width:100%; min-height:130px; resize:vertical; background:#0d1115; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:8px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+    button, select, input { background:#222b34; color:var(--ink); border:1px solid #394653; border-radius:6px; padding:7px 10px; font-size:13px; }
+    button.primary { background:#1d5fa8; border-color:#2f7bd1; }
+    button:hover { border-color:var(--blue); }
+    .columns { display:grid; grid-template-columns:1fr 1fr; min-height:0; flex:1; }
+    .column { overflow:auto; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+    .column:first-child { border-right:1px solid var(--line); }
+    .line { display:grid; grid-template-columns:42px 1fr; min-height:21px; cursor:pointer; border-left:3px solid transparent; }
+    .line:hover { background:#202a33; }
+    .line.active { background:#26394c; border-left-color:var(--blue); }
+    .line.format { border-left-color:var(--green); }
+    .line.equivalent_modal, .line.equivalent_geometry { border-left-color:var(--purple); }
+    .line.real_modal { border-left-color:var(--amber); }
+    .line.real_motion { border-left-color:var(--red); }
+    .line.unknown { background:#3a2226; border-left-color:#ff3838; }
+    .lineno { color:var(--muted); padding:2px 6px; user-select:none; text-align:right; }
+    .code { padding:2px 6px; white-space:pre; }
+    #preview { flex:1; background:#0c1014; }
+    .legend { display:flex; gap:12px; padding:8px 12px; border-top:1px solid var(--line); font-size:12px; color:var(--muted); flex-wrap:wrap; }
+    .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; }
+    .inspector { overflow:auto; }
+    .card { border-bottom:1px solid var(--line); padding:10px 12px; }
+    .card h3 { font-size:13px; margin:0 0 8px; }
+    pre { white-space:pre-wrap; word-break:break-word; background:#0d1115; border:1px solid var(--line); border-radius:6px; padding:8px; margin:6px 0; font-size:11px; max-height:260px; overflow:auto; }
+    .finding { padding:7px 8px; margin:6px 0; border-radius:6px; background:#0d1115; border-left:3px solid var(--muted); font-size:12px; }
+    .finding.danger { border-color:var(--red); }
+    .finding.warning { border-color:var(--amber); }
+    .badge { display:inline-block; padding:2px 6px; border-radius:5px; font-size:11px; margin:2px; background:#26313b; }
+    .badge.red { background:#5b232a; } .badge.amber { background:#5a4520; } .badge.green { background:#1d4a31; } .badge.purple { background:#453154; }
+    label { display:grid; gap:4px; font-size:12px; color:var(--muted); margin:6px 0; }
+    input { width:100%; }
+    .muted { color:var(--muted); font-size:12px; }
+    .safe-ok { color:var(--green); } .safe-bad { color:var(--red); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>刀轨审阅台</h1>
+    <span class="status" id="status">导入两份 G-code 后进行语义比较</span>
+  </header>
+  <main>
+    <section>
+      <h2>原始文本与字节位置</h2>
+      <div class="toolbar">
+        <button class="primary" id="analyze">分析 / 比较</button>
+        <button id="sample">载入示例</button>
+        <button id="diffExport">导出 unified diff</button>
+        <button id="patchExport">导出字节补丁</button>
+      </div>
+      <div style="padding:10px; display:grid; gap:8px;">
+        <textarea id="original" spellcheck="false" placeholder="原始 G-code"></textarea>
+        <textarea id="modified" spellcheck="false" placeholder="修改版 G-code"></textarea>
+      </div>
+      <div class="columns">
+        <div class="column" id="originalLines"></div>
+        <div class="column" id="modifiedLines"></div>
+      </div>
+    </section>
+    <section>
+      <h2><span>解释后几何预览</span><select id="layer"><option value="original">原版</option><option value="modified">修改版</option><option value="difference" selected>差异层</option></select></h2>
+      <canvas id="preview"></canvas>
+      <div class="legend">
+        <span><i class="dot" style="background:#5aa9ff"></i>普通切削</span>
+        <span><i class="dot" style="background:#ff6b6b"></i>快速/差异</span>
+        <span><i class="dot" style="background:#58d68d"></i>格式一致</span>
+        <span><i class="dot" style="background:#f2c14e"></i>模态差异</span>
+        <span>投影
+          <select id="plane"><option value="XY">XY</option><option value="XZ">XZ</option><option value="YZ">YZ</option></select>
+        </span>
+      </div>
+    </section>
+    <section class="inspector">
+      <h2>差异、安全与快照</h2>
+      <div class="card">
+        <h3>结论</h3>
+        <div id="summary" class="muted">尚未分析</div>
+      </div>
+      <div class="card"><h3>安全判断</h3><div id="findings"></div></div>
+      <div class="card"><h3>行 / 运动详情</h3><div id="selection" class="muted">点击左侧行或刀轨。</div></div>
+      <div class="card">
+        <h3>确认厂商指令</h3>
+        <label>指令<input id="vendorInstruction" placeholder="M999"></label>
+        <label>适用机型<input id="vendorMachine" value="generic"></label>
+        <label>语义版本<input id="vendorVersion" value="manual/1.0.0"></label>
+        <label>人工语义<select id="vendorEffect"><option value="none">无执行语义</option><option value="spindle_on_cw">主轴正转</option><option value="spindle_on_ccw">主轴反转</option><option value="spindle_off">主轴停止</option><option value="coolant_on">冷却开</option><option value="coolant_off">冷却关</option></select></label>
+        <label>确认人<input id="vendorUser" value="工艺员"></label>
+        <label>备注<input id="vendorNote"></label>
+        <button id="confirmVendor">保存人工确认</button>
+      </div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
