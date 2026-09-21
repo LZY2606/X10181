@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>刀轨审阅台</title>
+<style>
+:root{
+  --bg:#101418; --panel:#171d24; --panel2:#1e2630; --line:#2a3542;
+  --text:#dfe7ee; --muted:#8ea0b0; --a:#4fa3ff; --b:#ff9f43; --ok:#36c46a;
+  --warn:#f5c451; --danger:#ff5d5d; --sel:#ffdd57;
+}
+*{box-sizing:border-box}
+body{margin:0;font:13px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:14px;padding:8px 14px;background:var(--panel);
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+header h1{font-size:16px;margin:0;letter-spacing:2px}
+select,button,input,textarea{background:var(--panel2);color:var(--text);border:1px solid var(--line);
+  border-radius:6px;padding:5px 9px;font-size:12px}
+button{cursor:pointer}
+button:hover{border-color:#4a5b6d}
+main{flex:1;display:grid;grid-template-columns:330px 1fr 360px;min-height:0}
+.col{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+.col:last-child{border-right:none}
+.tabs{display:flex;gap:4px;padding:7px 10px;border-bottom:1px solid var(--line);background:var(--panel)}
+.tab{padding:4px 12px;border-radius:5px;cursor:pointer;color:var(--muted)}
+.tab.active{background:var(--panel2);color:var(--text)}
+.canvas-wrap{position:relative;flex:1;min-height:0;background:#0b0f13}
+canvas{position:absolute;inset:0;width:100%;height:100%}
+.legend{position:absolute;left:10px;bottom:10px;background:rgba(20,26,33,.85);
+  border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:11px;color:var(--muted)}
+.legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin:0 5px 2px 8px}
+.scroll{overflow:auto;min-height:0;flex:1}
+table{border-collapse:collapse;width:100%;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+th{position:sticky;top:0;background:var(--panel);text-align:left;padding:4px 7px;
+  color:var(--muted);font-weight:600;border-bottom:1px solid var(--line);z-index:2}
+td{padding:1px 7px;white-space:pre;cursor:pointer;border-bottom:1px solid #1b232c}
+td.num{color:var(--muted);text-align:right;width:38px;user-select:none}
+tr.sel td{background:#3a3520}
+tr.affected td{box-shadow:inset 3px 0 0 var(--b)}
+.k-format{color:var(--muted)} .k-equivalent{color:var(--ok)}
+.k-changed{color:var(--b)} .k-unknown{color:var(--danger);font-weight:700}
+.k-added{color:var(--ok)} .k-removed{color:#d98cff}
+.tag{display:inline-block;padding:0 5px;border-radius:4px;font-size:10px;margin-right:5px}
+.section{padding:9px 12px;border-bottom:1px solid var(--line)}
+.section h3{margin:0 0 6px;font-size:12px;color:var(--muted);font-weight:600;
+  text-transform:uppercase;letter-spacing:1px}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:2px 8px;font-size:12px}
+.kv .k{color:var(--muted)}
+.badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700}
+.v-safe{background:rgba(54,196,106,.2);color:var(--ok)}
+.v-review{background:rgba(245,196,81,.2);color:var(--warn)}
+.v-unsafe{background:rgba(255,93,93,.2);color:var(--danger)}
+.finding{border:1px solid var(--line);border-radius:7px;padding:6px 8px;margin:5px 0;background:var(--panel2)}
+.f-danger{border-left:3px solid var(--danger)} .f-warning{border-left:3px solid var(--warn)}
+.muted{color:var(--muted)} .small{font-size:11px}
+.mono{font-family:ui-monospace,Menlo,monospace}
+label.row{display:flex;align-items:center;gap:7px;margin:4px 0}
+.diff-add{color:var(--ok)} .diff-del{color:#d98cff}
+.div-head{cursor:pointer}
+.div-head:hover{background:var(--panel2)}
+</style>
+</head>
+<body>
+<header>
+  <h1>刀轨审阅台</h1>
+  <select id="project"></select>
+  <button id="newBtn">新建项目</button>
+  <label class="row" style="margin:0"><input type="file" id="fileA" accept=".nc,.gcode,.txt,.tap">原版</label>
+  <label class="row" style="margin:0"><input type="file" id="fileB" accept=".nc,.gcode,.txt,.tap">修改版</label>
+  <button id="uploadBtn" disabled>导入两个版本</button>
+  <span style="flex:1"></span>
+  <span class="small muted">判定：</span><span id="verdict" class="badge v-review">—</span>
+  <button id="exportBtn">导出补丁结果</button>
+</header>
+<main>
+  <div class="col">
+    <div class="tabs">
+      <span class="tab active" data-side="a">原版 A</span>
+      <span class="tab" data-side="b">修改版 B</span>
+    </div>
+    <div class="scroll"><table id="codeTable">
+      <thead><tr><th>#</th><th>原文 / 字节位置</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </div>
+  <div class="col">
+    <div class="tabs">
+      <span class="tab layer active" data-layer="diff">差异层</span>
+      <span class="tab layer" data-layer="a">原版</span>
+      <span class="tab layer" data-layer="b">修改版</span>
+      <span style="flex:1"></span>
+      <span id="cursor" class="small muted"></span>
+    </div>
+    <div class="canvas-wrap"><canvas id="cv"></canvas>
+      <div class="legend">
+        <i style="background:#6b7c8d"></i>相同
+        <i style="background:#4fa3ff"></i>仅 A
+        <i style="background:#ff9f43"></i>仅 B
+        <i style="background:#ffdd57"></i>选中
+        <i style="background:#ff5d5d"></i>快速穿毛坯
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="scroll">
+      <div class="section">
+        <h3>安全检查</h3><div id="findings"><span class="muted small">导入后显示</span></div>
+      </div>
+      <div class="section">
+        <h3>差异段（最早分叉 → 汇合）</h3><div id="divs"></div>
+      </div>
+      <div class="section">
+        <h3>运动模态快照</h3><div id="snapshot"><span class="muted small">点选左侧行或刀轨运动，查看该行前后模态。</span></div>
+      </div>
+      <div class="section">
+        <h3>未识别厂商指令 · 人工语义</h3><div id="unknowns"></div>
+      </div>
+    </div>
+  </div>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
